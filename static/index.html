@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planificator v3</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,500;9..40,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0e14;--sf:#111720;--s2:#181f2c;--bd:#1e2738;--bh:#2a3a52;
+--tx:#c5cdd8;--dm:#6b7a8d;--br:#e8edf3;--ac:#38bdf8;--ad:#0c4a6e;
+--gn:#34d399;--gd:#064e3b;--rd:#f87171;--rdd:#7f1d1d;--am:#fbbf24;--amd:#78350f;
+--pp:#a78bfa;--ppd:#3b0764;--sM:#38bdf8;--sT:#fbbf24;--sN:#a78bfa;--sOF:#1e2738;
+--r:10px;--f:'DM Sans',system-ui,sans-serif;--m:'JetBrains Mono',monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--f);background:var(--bg);color:var(--tx);display:flex;height:100vh;overflow:hidden}
+.sidebar{width:220px;min-width:220px;background:var(--sf);border-right:1px solid var(--bd);display:flex;flex-direction:column;height:100vh;overflow-y:auto}
+.sidebar .logo{padding:18px 16px 14px;font-size:17px;font-weight:700;color:var(--ac);letter-spacing:-.3px;border-bottom:1px solid var(--bd)}
+.sidebar .logo span{color:var(--dm);font-weight:300;font-size:13px}
+.sidebar .sec{padding:14px 16px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--dm)}
+.nav{display:flex;align-items:center;gap:8px;padding:8px 16px;font-size:13px;cursor:pointer;color:var(--tx);transition:all .12s;border-left:3px solid transparent}
+.nav:hover{background:var(--s2);color:var(--br)}
+.nav.on{background:var(--ad);color:var(--ac);border-left-color:var(--ac)}
+.content{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;padding:12px 20px;border-bottom:1px solid var(--bd);background:var(--sf);gap:12px;min-height:52px;flex-shrink:0}
+.topbar h1{font-size:16px;font-weight:600;color:var(--br)}
+.topbar .sp{flex:1}
+.pg{flex:1;padding:16px;overflow-y:auto}
+.pg.hid{display:none!important}
+.btn{font-family:var(--f);font-size:12px;font-weight:500;padding:6px 12px;border-radius:6px;border:1px solid var(--bd);background:var(--s2);color:var(--tx);cursor:pointer;transition:all .12s;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.btn:hover{background:var(--bd);color:var(--br)}
+.btn.pri{background:var(--ac);color:#000;border-color:var(--ac);font-weight:700}
+.btn.pri:hover{background:#7dd3fc}
+.btn.dan{border-color:var(--rdd);color:var(--rd)}.btn.dan:hover{background:var(--rdd)}
+.btn.suc{border-color:var(--gd);color:var(--gn)}.btn.suc:hover{background:var(--gd)}
+.btn.sm{padding:3px 8px;font-size:11px}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:12px;overflow:hidden}
+.card-h{padding:12px 16px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between}
+.card-h h3{font-size:14px;font-weight:600;color:var(--br)}
+.card-b{padding:16px}
+.fr{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.fg{display:flex;flex-direction:column;gap:3px;min-width:120px}
+.fg.gw{flex:1}
+.fg label{font-size:10px;font-weight:500;color:var(--dm);text-transform:uppercase;letter-spacing:.5px}
+.fg input,.fg select{font-family:var(--f);font-size:12px;padding:6px 8px;border-radius:6px;border:1px solid var(--bd);background:var(--bg);color:var(--br);outline:none}
+.fg input:focus,.fg select:focus{border-color:var(--ac)}
+.dt{width:100%;border-collapse:collapse;font-size:12px}
+.dt th{text-align:left;padding:6px 8px;font-size:10px;color:var(--dm);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);background:var(--s2)}
+.dt td{padding:6px 8px;border-bottom:1px solid var(--bd)}
+.dt tr:hover td{background:var(--s2)}
+.tg{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;font-family:var(--m)}
+.tg-on{background:var(--gd);color:var(--gn)}.tg-off{background:var(--rdd);color:var(--rd)}
+.tg-hard{background:var(--rdd);color:var(--rd)}.tg-soft{background:var(--amd);color:var(--am)}
+/* Schedule */
+.srv-hdr{padding:10px 16px;background:var(--s2);border-bottom:1px solid var(--bd);font-size:13px;font-weight:600;color:var(--ac)}
+.sw{overflow-x:auto}
+.sc{border-collapse:collapse;width:100%;font-size:11px}
+.sc th,.sc td{padding:0;text-align:center;border:1px solid var(--bd);min-width:36px}
+.sc thead th{position:sticky;top:0;z-index:2;background:var(--s2);color:var(--dm);font-weight:500;padding:4px 2px;font-size:9px}
+.sc .eh{position:sticky;left:0;z-index:3;min-width:130px;text-align:left;padding-left:10px;background:var(--s2);font-size:10px;color:var(--br)}
+.sc .ph{min-width:80px;text-align:left;padding-left:8px;background:var(--s2);font-size:9px;color:var(--dm)}
+.sc tbody .en{position:sticky;left:0;z-index:1;background:var(--sf);text-align:left;padding:3px 8px;font-weight:600;color:var(--br);font-size:11px;white-space:nowrap;border-right:2px solid var(--bh)}
+.sc tbody .ep{background:var(--sf);text-align:left;padding:3px 8px;font-size:9px;color:var(--dm);white-space:nowrap;border-right:1px solid var(--bd)}
+.sc tbody .cl{padding:2px 1px;font-family:var(--m);font-size:9px;font-weight:600;cursor:pointer;height:26px;transition:all .1s}
+.sc tbody .cl:hover{filter:brightness(1.4);outline:1px solid var(--ac)}
+.cl.cM{background:rgba(56,189,248,.15);color:var(--sM)}
+.cl.cT{background:rgba(251,191,36,.12);color:var(--sT)}
+.cl.cN{background:rgba(167,139,250,.15);color:var(--sN)}
+.cl.cO{background:var(--sOF);color:var(--dm)}
+.cl.cVC{background:rgba(52,211,153,.12);color:var(--gn)}
+.cl.cBM{background:rgba(248,113,113,.15);color:var(--rd)}
+.cl.cRL{background:rgba(251,191,36,.12);color:var(--am)}
+.sc thead th.we{background:rgba(251,191,36,.06)}
+/* Stats */
+.sts{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.st{flex:1;min-width:140px;background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px}
+.st .sl{font-size:10px;color:var(--dm);text-transform:uppercase;letter-spacing:.6px}
+.st .sv{font-size:22px;font-weight:700;color:var(--br);margin-top:3px;font-family:var(--m)}
+/* Hours */
+.ht{width:100%;border-collapse:collapse;font-size:12px}
+.ht th{background:var(--s2);color:var(--dm);padding:8px 10px;text-align:left;font-weight:500;font-size:10px;text-transform:uppercase}
+.ht td{padding:8px 10px;border-top:1px solid var(--bd)}
+.hb{height:5px;border-radius:3px;background:var(--bd);width:100%}
+.hb-f{height:100%;border-radius:3px;transition:width .3s}
+.hb-f.ok{background:var(--gn)}.hb-f.ov{background:var(--rd)}.hb-f.un{background:var(--am)}
+/* Matrix */
+.mx{border-collapse:collapse;font-size:12px}
+.mx th,.mx td{padding:6px 10px;border:1px solid var(--bd);text-align:center}
+.mx th{background:var(--s2);color:var(--dm);font-size:10px;text-transform:uppercase}
+.mx .ck{cursor:pointer;font-size:16px;transition:background .1s}
+.mx .ck:hover{background:var(--s2)}
+/* Modal */
+.mo-bg{display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);align-items:center;justify-content:center}
+.mo-bg.op{display:flex}
+.mo{background:var(--sf);border:1px solid var(--bh);border-radius:12px;width:480px;max-width:95vw;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5);padding:20px;animation:mI .15s ease-out}
+@keyframes mI{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:none}}
+.mo h3{font-size:14px;font-weight:600;color:var(--br);margin-bottom:14px}
+/* Toast */
+.tts{position:fixed;bottom:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:6px}
+.tt{padding:8px 14px;border-radius:7px;font-size:12px;font-weight:500;background:var(--s2);border:1px solid var(--bd);color:var(--br);animation:tI .2s;max-width:320px}
+.tt.ok{border-color:var(--gd);color:var(--gn)}.tt.er{border-color:var(--rdd);color:var(--rd)}
+@keyframes tI{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:var(--bh);border-radius:3px}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <div class="logo">Planificator <span>v3</span></div>
+  <div class="sec">Planificación</div>
+  <div class="nav on" data-pg="pg-horario" onclick="go(this)">📋 Cuadrante</div>
+  <div class="nav" data-pg="pg-config" onclick="go(this)">📅 Configuración</div>
+  <div class="nav" data-pg="pg-resumen" onclick="go(this)">📊 Resúmenes</div>
+  <div class="sec">Datos maestros</div>
+  <div class="nav" data-pg="pg-servicios" onclick="go(this)">⚙ Servicios</div>
+  <div class="nav" data-pg="pg-posiciones" onclick="go(this)">◎ Posiciones</div>
+  <div class="nav" data-pg="pg-turnos" onclick="go(this)">⏱ Turnos</div>
+  <div class="nav" data-pg="pg-empleados" onclick="go(this)">👤 Empleados</div>
+  <div class="sec">Reglas</div>
+  <div class="nav" data-pg="pg-catalogo" onclick="go(this)">📋 Catálogo Restr.</div>
+  <div class="nav" data-pg="pg-restricciones" onclick="go(this)">🚫 Restricciones</div>
+  <div class="nav" data-pg="pg-asignaciones" onclick="go(this)">🔗 Asig. Servicio</div>
+  <div class="nav" data-pg="pg-conciliaciones" onclick="go(this)">🕐 Conciliaciones</div>
+</div>
+<div class="content">
+<div class="topbar"><h1 id="title">Cuadrante de turnos</h1><div class="sp"></div>
+  <button class="btn pri" onclick="generar()">▶ Generar</button>
+  <button class="btn" onclick="doReset()">↺ Reset</button></div>
+
+<div class="pg" id="pg-horario">
+  <div id="hist-banner" style="display:none;background:rgba(251,191,36,.08);border:1px solid var(--am);border-radius:8px;padding:8px 14px;margin-bottom:10px;font-size:12px;color:var(--am);align-items:center;gap:10px">
+    <span id="hist-banner-txt"></span>
+    <div style="flex:1"></div>
+    <button class="btn sm" onclick="exitHistView()">← Volver al actual</button>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-h"><h3>Histórico de versiones</h3><button class="btn suc sm" onclick="mSaveVersion()">💾 Guardar versión actual</button></div>
+    <div class="card-b" id="hist-list" style="padding:8px 16px"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <button class="btn sm" onclick="navMonth(-1)">← Anterior</button>
+    <span id="nav-periodo" style="font-size:14px;font-weight:600;color:var(--br);min-width:180px;text-align:center">Sin horario</span>
+    <button class="btn sm" onclick="navMonth(1)">Siguiente →</button>
+  </div>
+  <div class="sts" id="sts" style="display:none">
+    <div class="st"><div class="sl">Empleados</div><div class="sv" id="s-emp">-</div></div>
+    <div class="st" style="--c:var(--gn)"><div class="sl">Cubiertos</div><div class="sv" style="color:var(--gn)" id="s-cub">-</div></div>
+    <div class="st"><div class="sl">Faltantes</div><div class="sv" style="color:var(--rd)" id="s-flt">-</div></div>
+    <div class="st"><div class="sl">Días</div><div class="sv" id="s-dias">-</div></div>
+  </div>
+  <div id="sch-area"><div class="card"><div class="card-b" style="text-align:center;padding:50px;color:var(--dm)"><div style="font-size:40px;opacity:.3;margin-bottom:10px">📋</div><p>Sin horario generado. Pulsa <b>▶ Generar</b></p></div></div></div>
+  <div class="card" id="hrs-card" style="display:none"><div class="card-h"><h3>Horas por empleado (trabajo + restricciones)</h3></div><div class="card-b" id="hrs-area"></div></div>
+</div>
+
+<div class="pg hid" id="pg-config"><div class="card"><div class="card-h"><h3>Parámetros</h3></div><div class="card-b">
+  <div class="fr"><div class="fg"><label>Fecha inicio</label><input type="date" id="c-start" value="2026-03-01"></div>
+    <div class="fg"><label>Nº días</label><input type="number" id="c-days" value="31" min="28" max="31" readonly></div>
+    <div class="fg"><label>Solver (s)</label><input type="number" id="c-time" value="30" min="1"></div></div>
+  <p style="font-size:11px;color:var(--dm);margin:8px 0 0">La planificación se genera siempre por mes completo.</p>
+  <button class="btn pri" onclick="generar()">▶ Generar Horario</button>
+</div></div></div>
+
+<div class="pg hid" id="pg-resumen"><div class="card"><div class="card-h"><h3>Resumen empleado</h3></div><div class="card-b">
+  <div class="fr"><div class="fg"><label>Empleado</label><select id="r-emp" onchange="resEmp()"></select></div></div><div id="r-emp-a"></div>
+</div></div><div class="card"><div class="card-h"><h3>Resumen servicio</h3></div><div class="card-b">
+  <div class="fr"><div class="fg"><label>Servicio</label><select id="r-srv" onchange="resSrv()"></select></div></div><div id="r-srv-a"></div>
+</div></div></div>
+
+<div class="pg hid" id="pg-servicios"><div class="card"><div class="card-h"><h3>Servicios</h3><button class="btn suc sm" onclick="mSrv()">+ Nuevo</button></div><div class="card-b" id="srv-t"></div></div></div>
+<div class="pg hid" id="pg-posiciones"><div class="card"><div class="card-h"><h3>Posiciones</h3><button class="btn suc sm" onclick="mPos()">+ Nueva</button></div><div class="card-b" id="pos-t"></div></div></div>
+<div class="pg hid" id="pg-turnos"><div class="card"><div class="card-h"><h3>Turnos</h3><button class="btn suc sm" onclick="mTrn()">+ Nuevo</button></div><div class="card-b" id="trn-t"></div></div></div>
+<div class="pg hid" id="pg-empleados"><div class="card"><div class="card-h"><h3>Empleados</h3><button class="btn suc sm" onclick="mEmp()">+ Nuevo</button></div><div class="card-b" id="emp-t"></div></div></div>
+<div class="pg hid" id="pg-catalogo"><div class="card"><div class="card-h"><h3>Catálogo restricciones</h3><button class="btn suc sm" onclick="mCat()">+ Nuevo</button></div><div class="card-b" id="cat-t"></div></div></div>
+<div class="pg hid" id="pg-restricciones"><div class="card"><div class="card-h"><h3>Restricciones asignadas</h3><button class="btn suc sm" onclick="mRes()">+ Asignar</button></div><div class="card-b" id="res-t"></div></div></div>
+<div class="pg hid" id="pg-asignaciones"><div class="card"><div class="card-h"><h3>Asignación empleado → servicio</h3></div><div class="card-b"><p style="font-size:11px;color:var(--dm);margin-bottom:10px">Clic en celda para asignar/desasignar</p><div id="asig-t"></div></div></div></div>
+<div class="pg hid" id="pg-conciliaciones"><div class="card"><div class="card-h"><h3>Conciliaciones</h3><button class="btn suc sm" onclick="mConc()">+ Nueva</button></div><div class="card-b"><p style="font-size:11px;color:var(--dm);margin-bottom:10px">Horarios disponibles por día. Sin registro = disponible todo el día.</p><div id="conc-t"></div></div></div></div>
+</div>
+
+<div class="mo-bg" id="modal" onclick="if(event.target===this)cMo()"><div class="mo" id="mo-c"></div></div>
+<div class="mo-bg" id="emodal" onclick="if(event.target===this)cEm()"><div class="mo" id="emo-c"></div></div>
+<div class="tts" id="tts"></div>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
