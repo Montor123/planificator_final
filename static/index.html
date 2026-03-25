@@ -106,13 +106,13 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);display:flex;heig
 <div class="sidebar">
   <div class="logo">Planificator <span>v3</span></div>
   <div class="sec">Planificación</div>
-  <div class="nav on" data-pg="pg-horario" onclick="go(this)">📋 Cuadrante</div>
+  <div class="nav on" data-pg="pg-horario" onclick="go(this)">📋 Cuadrante - Servicio</div>
+  <div class="nav" data-pg="pg-horario-empleado" onclick="go(this)">👤 Cuadrante empleado</div>
   <div class="nav" data-pg="pg-config" onclick="go(this)">📅 Configuración</div>
   <div class="nav" data-pg="pg-resumen" onclick="go(this)">📊 Resúmenes</div>
   <div class="sec">Datos maestros</div>
   <div class="nav" data-pg="pg-servicios" onclick="go(this)">⚙ Servicios</div>
   <div class="nav" data-pg="pg-posiciones" onclick="go(this)">◎ Posiciones</div>
-  <div class="nav" data-pg="pg-turnos" onclick="go(this)">⏱ Turnos</div>
   <div class="nav" data-pg="pg-empleados" onclick="go(this)">👤 Empleados</div>
   <div class="sec">Reglas</div>
   <div class="nav" data-pg="pg-catalogo" onclick="go(this)">📋 Catálogo Restr.</div>
@@ -121,7 +121,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);display:flex;heig
   <div class="nav" data-pg="pg-conciliaciones" onclick="go(this)">🕐 Conciliaciones</div>
 </div>
 <div class="content">
-<div class="topbar"><h1 id="title">Cuadrante de turnos</h1><div class="sp"></div>
+<div class="topbar"><h1 id="title">Cuadrante - Servicio</h1><div class="sp"></div>
   <button class="btn pri" onclick="generar()">▶ Generar</button>
   <button class="btn" onclick="doReset()">↺ Reset</button></div>
 
@@ -139,6 +139,23 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);display:flex;heig
     <button class="btn sm" onclick="navMonth(-1)">← Anterior</button>
     <span id="nav-periodo" style="font-size:14px;font-weight:600;color:var(--br);min-width:180px;text-align:center">Sin horario</span>
     <button class="btn sm" onclick="navMonth(1)">Siguiente →</button>
+    <div style="display:flex;align-items:center;gap:6px;margin-left:6px">
+      <span style="font-size:11px;color:var(--dm);white-space:nowrap">Servicio:</span>
+      <select id="sch-srv-filter" onchange="onScheduleServiceFilterChange()" style="font-family:var(--f);font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid var(--bd);background:var(--bg);color:var(--br);min-width:190px">
+        <option value="">Todos los servicios</option>
+      </select>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;margin-left:6px">
+      <span style="font-size:11px;color:var(--dm);white-space:nowrap">Posición:</span>
+      <select id="sch-pos-filter" onchange="onSchedulePositionFilterChange()" style="font-family:var(--f);font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid var(--bd);background:var(--bg);color:var(--br);min-width:220px">
+        <option value="">Todas las posiciones</option>
+      </select>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+    <button class="btn pri" onclick="generar()">▶ Generar este mes</button>
+    <button class="btn" onclick="showLatestScheduleMonth()">↺ Ver último horario</button>
+    <span style="font-size:11px;color:var(--dm)">Generación rápida desde Cuadrante</span>
   </div>
   <div class="sts" id="sts" style="display:none">
     <div class="st"><div class="sl">Empleados</div><div class="sv" id="s-emp">-</div></div>
@@ -148,6 +165,21 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);display:flex;heig
   </div>
   <div id="sch-area"><div class="card"><div class="card-b" style="text-align:center;padding:50px;color:var(--dm)"><div style="font-size:40px;opacity:.3;margin-bottom:10px">📋</div><p>Sin horario generado. Pulsa <b>▶ Generar</b></p></div></div></div>
   <div class="card" id="hrs-card" style="display:none"><div class="card-h"><h3>Horas por empleado (trabajo + restricciones)</h3></div><div class="card-b" id="hrs-area"></div></div>
+</div>
+
+<div class="pg hid" id="pg-horario-empleado">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+    <button class="btn sm" onclick="navMonth(-1)">← Anterior</button>
+    <span id="emp-nav-periodo" style="font-size:14px;font-weight:600;color:var(--br);min-width:180px;text-align:center">Sin horario</span>
+    <button class="btn sm" onclick="navMonth(1)">Siguiente →</button>
+    <div style="display:flex;align-items:center;gap:6px;margin-left:6px">
+      <span style="font-size:11px;color:var(--dm);white-space:nowrap">Empleado:</span>
+      <select id="emp-sch-filter" onchange="onEmployeeScheduleFilterChange()" style="font-family:var(--f);font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid var(--bd);background:var(--bg);color:var(--br);min-width:220px">
+        <option value="">Todos los empleados</option>
+      </select>
+    </div>
+  </div>
+  <div id="emp-sch-area"><div class="card"><div class="card-b" style="text-align:center;padding:50px;color:var(--dm)"><div style="font-size:40px;opacity:.3;margin-bottom:10px">👤</div><p>Sin horario generado para este mes</p></div></div></div>
 </div>
 
 <div class="pg hid" id="pg-config"><div class="card"><div class="card-h"><h3>Parámetros</h3></div><div class="card-b">
@@ -165,8 +197,8 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);display:flex;heig
 </div></div></div>
 
 <div class="pg hid" id="pg-servicios"><div class="card"><div class="card-h"><h3>Servicios</h3><button class="btn suc sm" onclick="mSrv()">+ Nuevo</button></div><div class="card-b" id="srv-t"></div></div></div>
-<div class="pg hid" id="pg-posiciones"><div class="card"><div class="card-h"><h3>Posiciones</h3><button class="btn suc sm" onclick="mPos()">+ Nueva</button></div><div class="card-b" id="pos-t"></div></div></div>
-<div class="pg hid" id="pg-turnos"><div class="card"><div class="card-h"><h3>Turnos</h3><button class="btn suc sm" onclick="mTrn()">+ Nuevo</button></div><div class="card-b" id="trn-t"></div></div></div>
+<div class="pg hid" id="pg-posiciones"><div class="card"><div class="card-h"><h3>Posiciones y turnos</h3><button class="btn suc sm" onclick="mPos()">+ Nueva</button></div><div class="card-b" id="pos-t"></div></div></div>
+<div class="pg hid" id="pg-turnos"><div class="card"><div class="card-h"><h3>Turnos (interno)</h3><button class="btn suc sm" onclick="mTrn()">+ Nuevo</button></div><div class="card-b" id="trn-t"></div></div></div>
 <div class="pg hid" id="pg-empleados"><div class="card"><div class="card-h"><h3>Empleados</h3><button class="btn suc sm" onclick="mEmp()">+ Nuevo</button></div><div class="card-b" id="emp-t"></div></div></div>
 <div class="pg hid" id="pg-catalogo"><div class="card"><div class="card-h"><h3>Catálogo restricciones</h3><button class="btn suc sm" onclick="mCat()">+ Nuevo</button></div><div class="card-b" id="cat-t"></div></div></div>
 <div class="pg hid" id="pg-restricciones"><div class="card"><div class="card-h"><h3>Restricciones asignadas</h3><button class="btn suc sm" onclick="mRes()">+ Asignar</button></div><div class="card-b" id="res-t"></div></div></div>
@@ -177,6 +209,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);display:flex;heig
 <div class="mo-bg" id="modal" onclick="if(event.target===this)cMo()"><div class="mo" id="mo-c"></div></div>
 <div class="mo-bg" id="emodal" onclick="if(event.target===this)cEm()"><div class="mo" id="emo-c"></div></div>
 <div class="tts" id="tts"></div>
-<script src="/static/js/app.js"></script>
+<script src="/static/js/app.js?v=20260323g"></script>
+<script src="/static/js/overrides.js?v=20260323g"></script>
 </body>
 </html>

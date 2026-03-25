@@ -2,8 +2,8 @@
 var S=null,SCH=null,HIST_ID=null;
 var DN=["D","L","M","X","J","V","S"],MN=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 var DF=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
-var TIT={"pg-horario":"Cuadrante de turnos","pg-config":"Configuración","pg-resumen":"Resúmenes",
-  "pg-servicios":"Servicios","pg-posiciones":"Posiciones","pg-turnos":"Turnos","pg-empleados":"Empleados",
+var TIT={"pg-horario":"Cuadrante - Servicio","pg-horario-empleado":"Cuadrante empleado","pg-config":"Configuración","pg-resumen":"Resúmenes",
+  "pg-servicios":"Servicios","pg-posiciones":"Posiciones y turnos","pg-turnos":"Turnos","pg-empleados":"Empleados",
   "pg-catalogo":"Catálogo de restricciones","pg-restricciones":"Restricciones asignadas",
   "pg-asignaciones":"Asignación servicio→empleado","pg-conciliaciones":"Conciliaciones"};
 
@@ -49,6 +49,7 @@ function showLatestScheduleMonth(){
   if(!SCH||!SCH.dates||!SCH.dates.length)return;
   syncInputsFromSchedule(SCH);
   renderSch();
+  if(typeof renderSchEmpleado==="function") renderSchEmpleado();
   toast("Mostrando el último horario generado","ok");
 }
 function solverSeconds(){
@@ -85,10 +86,11 @@ function load(pg){
   if(pg==="pg-empleados") rEmp();
   if(pg==="pg-catalogo") rCat();
   if(pg==="pg-restricciones") rRes();
-  if(pg==="pg-asignaciones") rAsig();
+  if(pg==="pg-asignaciones"){_loadAsigData().then(function(){rAsig()}).catch(function(e){toast(e.message,"er")});}
   if(pg==="pg-conciliaciones") rConc();
   if(pg==="pg-resumen") rResSel();
-  if(pg==="pg-horario"){if(SCH)renderSch();loadHistory();updateNavPeriodo();}
+  if(pg==="pg-horario"){refreshScheduleServiceFilter();if(SCH)renderSch();loadHistory();updateNavPeriodo();}
+  if(pg==="pg-horario-empleado"){if(typeof refreshEmployeeScheduleFilter==="function")refreshEmployeeScheduleFilter();if(SCH&&typeof renderSchEmpleado==="function")renderSchEmpleado();updateNavPeriodo();}
 }
 
 // ═══ MODALS ═══════════════════════════════════════════════════════
@@ -105,7 +107,7 @@ function rSrv(){
 }
 function mSrv(){oMo('<h3>Nuevo servicio</h3><div class="fr"><div class="fg gw"><label>Nombre</label><input id="i-sn"></div><div class="fg"><label>Área</label><input id="i-sa"></div><div class="fg"><label>CC</label><input id="i-sc"></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cancelar</button><button class="btn suc" onclick="doSrv()">Crear</button></div>')}
 function doSrv(){api("/api/servicios",{method:"POST",body:{nombre:V("i-sn"),area:V("i-sa"),centro_coste:V("i-sc")}}).then(function(r){S.servicios=r.servicios;rSrv();cMo();toast("Servicio creado","ok")}).catch(function(e){toast(e.message,"er")})}
-function dSrv(id){api("/api/servicios/"+id,{method:"DELETE"}).then(function(r){S.servicios=r.servicios;rSrv();toast("Desactivado")})}
+function dSrv(id){api("/api/servicios/"+id,{method:"DELETE"}).then(function(r){S.servicios=r.servicios;rSrv();toast("Eliminado","ok")})}
 function mEditSrv(id){
   var s=S.servicios.find(function(x){return x.id_servicio===id});if(!s)return;
   oMo('<h3>Editar servicio</h3><div class="fr"><div class="fg gw"><label>Nombre</label><input id="es-n" value="'+s.nombre+'"></div><div class="fg"><label>Área</label><input id="es-a" value="'+(s.area||"")+'"></div><div class="fg"><label>CC</label><input id="es-c" value="'+(s.centro_coste||"")+'"></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cancelar</button><button class="btn pri" onclick="doEditSrv('+id+')">Guardar</button></div>');
@@ -117,15 +119,41 @@ function doEditSrv(id){
 // ═══ POSICIONES ═══════════════════════════════════════════════════
 function rPos(){
   var sm={};S.servicios.forEach(function(s){sm[s.id_servicio]=s.nombre});
+  var tm={};(S.turnos||[]).forEach(function(t){
+    var pid=parseInt(t.id_posicion,10);
+    if(!tm[pid]) tm[pid]=[];
+    tm[pid].push(t);
+  });
   var rows=S.posiciones.map(function(p){
-    var btns=p.activa?'<button class="btn sm" onclick="mEditPos('+p.id_posicion+')">✎</button> <button class="btn dan sm" onclick="dPos('+p.id_posicion+')">✕</button>':'';
-    return '<tr><td>'+p.id_posicion+'</td><td>'+p.nombre+'</td><td>'+(sm[p.id_servicio]||p.id_servicio)+'</td><td><span class="tg '+(p.activa?'tg-on':'tg-off')+'">'+(p.activa?'Activa':'Off')+'</span></td><td>'+btns+'</td></tr>'}).join("");
-  H("pos-t",'<table class="dt"><thead><tr><th>ID</th><th>Nombre</th><th>Servicio</th><th>Estado</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>');
+    var is24=!!p.es_24h;
+    var mode=((p.modo_24h||"8h")+"").toLowerCase();
+    var modeLbl=mode==="12h"?"2x12":mode==="auto"?"Indistinto":"3x8";
+    var cov=is24?'<span class="tg" style="background:rgba(52,211,153,.12);color:var(--gn)">24H · '+modeLbl+'</span>':'<span class="tg" style="background:rgba(107,122,141,.15);color:var(--dm)">Flexible</span>';
+    var turns=(tm[p.id_posicion]||[]);
+    var turnBadges=turns.length?turns.map(function(t){
+      var sig=t.sigla_turno||t.nombre_turno;
+      return '<span class="tg" style="margin:1px 4px 1px 0">'+sig+'</span>';
+    }).join(""):'<span style="font-size:11px;color:var(--dm)">Sin turnos</span>';
+    var btns=p.activa
+      ?'<button class="btn sm" onclick="mPosTurns('+p.id_posicion+')">Turnos</button> <button class="btn sm" onclick="mEditPos('+p.id_posicion+')">✎</button> <button class="btn dan sm" onclick="dPos('+p.id_posicion+')">✕</button>'
+      :'<button class="btn sm" onclick="mPosTurns('+p.id_posicion+')">Turnos</button>';
+    return '<tr><td>'+p.id_posicion+'</td><td>'+p.nombre+'</td><td>'+(sm[p.id_servicio]||p.id_servicio)+'</td><td>'+cov+'</td><td>'+turnBadges+'</td><td><span class="tg '+(p.activa?'tg-on':'tg-off')+'">'+(p.activa?'Activa':'Off')+'</span></td><td>'+btns+'</td></tr>'}).join("");
+  H("pos-t",'<table class="dt"><thead><tr><th>ID</th><th>Nombre</th><th>Servicio</th><th>Cobertura</th><th>Turnos</th><th>Estado</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>');
 }
 function mPos(){
   var opts=S.servicios.filter(function(s){return s.activo}).map(function(s){return '<option value="'+s.id_servicio+'">'+s.nombre+'</option>'}).join("");
-  oMo('<h3>Nueva posición</h3><div class="fr"><div class="fg gw"><label>Nombre</label><input id="i-pn"></div><div class="fg"><label>Servicio</label><select id="i-ps">'+opts+'</select></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cancelar</button><button class="btn suc" onclick="doPos()">Crear</button></div>')}
-function doPos(){api("/api/posiciones",{method:"POST",body:{nombre:V("i-pn"),id_servicio:parseInt(V("i-ps"))}}).then(function(r){S.posiciones=r.posiciones;rPos();cMo();toast("Posición creada","ok")}).catch(function(e){toast(e.message,"er")})}
+  oMo('<h3>Nueva posición</h3><p style="font-size:11px;color:var(--dm);margin:0 0 10px">Después podrás crear sus turnos desde esta misma pantalla.</p><div class="fr"><div class="fg gw"><label>Nombre</label><input id="i-pn"></div><div class="fg"><label>Servicio</label><select id="i-ps">'+opts+'</select></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cancelar</button><button class="btn suc" onclick="doPos()">Crear</button></div>')}
+function doPos(){api("/api/posiciones",{method:"POST",body:{nombre:V("i-pn"),id_servicio:parseInt(V("i-ps"))}}).then(function(r){
+  S.posiciones=r.posiciones;
+  rPos();
+  cMo();
+  var newPosId=S.posiciones.reduce(function(mx,p){
+    var pid=parseInt(p.id_posicion,10);
+    return isNaN(pid)?mx:Math.max(mx,pid);
+  },0);
+  if(newPosId){mPosTurns(newPosId);}
+  toast("Posición creada","ok")
+}).catch(function(e){toast(e.message,"er")})}
 function dPos(id){api("/api/posiciones/"+id,{method:"DELETE"}).then(function(r){S.posiciones=r.posiciones;rPos()})}
 function mEditPos(id){
   var p=S.posiciones.find(function(x){return x.id_posicion===id});if(!p)return;
@@ -134,40 +162,108 @@ function mEditPos(id){
 function doEditPos(id){
   api("/api/posiciones/"+id,{method:"PUT",body:{nombre:V("ep-n")}}).then(function(r){S.posiciones=r.posiciones;rPos();cMo();toast("Posición actualizada","ok")}).catch(function(e){toast(e.message,"er")});
 }
+function mPosTurns(pid){
+  var p=S.posiciones.find(function(x){return x.id_posicion===pid});if(!p)return;
+  var sm={};S.servicios.forEach(function(s){sm[s.id_servicio]=s.nombre});
+  var turns=(S.turnos||[]).filter(function(t){return parseInt(t.id_posicion,10)===pid;});
+  turns.sort(function(a,b){return (a.hora_inicio||"").localeCompare(b.hora_inicio||"");});
+  var rows=turns.map(function(t){
+    var sig=t.sigla_turno||t.nombre_turno;
+    var dias=(t.dias_recurrencia||[]).map(function(d){return (DF[d]||"").substring(0,2)}).join(",");
+    return '<tr><td><span class="tg">'+sig+'</span></td><td>'+t.nombre_turno+'</td><td style="font-family:var(--m);font-size:11px">'+(t.hora_inicio||"").substring(0,5)+'–'+(t.hora_fin||"").substring(0,5)+'</td><td>'+t.duracion_horas+'h</td><td>'+dias+'</td><td><button class="btn sm" onclick="mEditTrn('+t.id_turno+')">✎</button> <button class="btn dan sm" onclick="dPosTurn('+t.id_turno+','+pid+')">✕</button></td></tr>';
+  }).join("");
+  if(!rows) rows='<tr><td colspan="6" style="color:var(--dm);font-size:11px">Sin turnos en esta posición.</td></tr>';
+  oMo('<h3>Posición y turnos</h3><p style="font-size:11px;color:var(--dm);margin:0 0 10px"><b>'+(sm[p.id_servicio]||("Servicio "+p.id_servicio))+' · '+p.nombre+'</b></p><div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn suc sm" onclick="mPosTurn('+pid+')">+ Nuevo turno</button></div><table class="dt"><thead><tr><th>Sigla</th><th>Nombre</th><th>Horario</th><th>Dur.</th><th>Días</th><th></th></tr></thead><tbody>'+rows+'</tbody></table><div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cerrar</button></div>');
+}
+function mPosTurn(pid){
+  var p=S.posiciones.find(function(x){return x.id_posicion===pid});if(!p)return;
+  var sm={};S.servicios.forEach(function(s){sm[s.id_servicio]=s.nombre});
+  var dc=DF.map(function(d,i){return '<label style="display:flex;gap:2px;align-items:center;font-size:11px"><input type="checkbox" class="dcp" value="'+i+'" '+(i<5?"checked":"")+'>'+d.substring(0,2)+'</label>'}).join("");
+  oMo('<h3>Nuevo turno</h3><p style="font-size:11px;color:var(--dm);margin:0 0 10px">Posición: <b>'+(sm[p.id_servicio]||("Servicio "+p.id_servicio))+' · '+p.nombre+'</b></p><div class="fr"><div class="fg gw"><label>Nombre</label><input id="ip-tn" value="Refuerzo"></div></div><div class="fr"><div class="fg"><label>Hora ini</label><input type="time" id="ip-thi" value="08:00"></div><div class="fg"><label>Hora fin</label><input type="time" id="ip-thf" value="16:00"></div></div><div class="fr"><div class="fg gw"><label>Días</label><div style="display:flex;gap:5px;flex-wrap:wrap">'+dc+'</div></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="mPosTurns('+pid+')">Volver</button><button class="btn suc" onclick="doPosTurn('+pid+')">Crear</button></div>');
+}
+function doPosTurn(pid){
+  var dias=[];document.querySelectorAll(".dcp:checked").forEach(function(c){dias.push(parseInt(c.value))});
+  api("/api/turnos",{method:"POST",body:{nombre_turno:V("ip-tn"),id_posicion:pid,hora_inicio:V("ip-thi"),hora_fin:V("ip-thf"),dias_recurrencia:dias}})
+    .then(function(r){S.turnos=r.turnos;rPos();mPosTurns(pid);toast("Turno creado","ok")})
+    .catch(function(e){toast(e.message,"er")});
+}
+function dPosTurn(id,pid){
+  api("/api/turnos/"+id,{method:"DELETE"})
+    .then(function(r){S.turnos=r.turnos;rPos();mPosTurns(pid);toast("Turno eliminado","ok")})
+    .catch(function(e){toast(e.message,"er")});
+}
 
 // ═══ TURNOS ═══════════════════════════════════════════════════════
 function rTrn(){
+  var pm={};(S.posiciones||[]).forEach(function(p){pm[p.id_posicion]=p});
+  var sm={};(S.servicios||[]).forEach(function(s){sm[s.id_servicio]=s.nombre});
   var rows=S.turnos.map(function(t){
     var sig=t.sigla_turno||t.nombre_turno;
     var bg=sig[0]==="M"?"rgba(56,189,248,.15);color:var(--sM)":sig[0]==="T"?"rgba(251,191,36,.12);color:var(--sT)":"rgba(167,139,250,.15);color:var(--sN)";
     var dias=(t.dias_recurrencia||[]).map(function(d){return (DF[d]||"").substring(0,2)}).join(",");
-    var grp=t.grupo_rotacion?'<span style="font-size:9px;color:var(--pp);margin-left:4px">⊕'+t.grupo_rotacion+'</span>':'';
-    var ind=t.es_indistinto?'<span style="font-size:9px;color:var(--am);margin-left:2px" title="Indistinto">⊘</span>':'';
-    return '<tr><td><span class="tg" style="background:'+bg+'">'+sig+'</span></td><td>'+t.nombre_turno+grp+ind+'</td><td style="font-family:var(--m);font-size:11px">'+(t.hora_inicio||"").substring(0,5)+'–'+(t.hora_fin||"").substring(0,5)+'</td><td>'+t.duracion_horas+'h</td><td>'+dias+'</td><td><button class="btn sm" onclick="mEditTrn('+t.id_turno+')">✎</button> <button class="btn dan sm" onclick="dTrn('+t.id_turno+')">✕</button></td></tr>'}).join("");
-  H("trn-t",'<table class="dt"><thead><tr><th>Sigla</th><th>Nombre</th><th>Horario</th><th>Dur.</th><th>Días</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>');
+    var pos=pm[t.id_posicion];
+    var posName=pos?pos.nombre:("Posición "+t.id_posicion);
+    var srvName=pos?(sm[pos.id_servicio]||("Servicio "+pos.id_servicio)):"-";
+    return '<tr><td><span class="tg" style="background:'+bg+'">'+sig+'</span></td><td>'+t.nombre_turno+'</td><td>'+srvName+'</td><td>'+posName+'</td><td style="font-family:var(--m);font-size:11px">'+(t.hora_inicio||"").substring(0,5)+'–'+(t.hora_fin||"").substring(0,5)+'</td><td>'+t.duracion_horas+'h</td><td>'+dias+'</td><td><button class="btn sm" onclick="mEditTrn('+t.id_turno+')">✎</button> <button class="btn dan sm" onclick="dTrn('+t.id_turno+')">✕</button></td></tr>'}).join("");
+  H("trn-t",'<table class="dt"><thead><tr><th>Sigla</th><th>Nombre</th><th>Servicio</th><th>Posición</th><th>Horario</th><th>Dur.</th><th>Días</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>');
 }
-function _gruposOpts(sel){
-  var grupos=[...new Set(S.turnos.filter(function(x){return x.grupo_rotacion}).map(function(x){return x.grupo_rotacion}))];
-  return '<option value="">Sin grupo</option>'+grupos.map(function(g){return '<option value="'+g+'"'+(sel===g?' selected':'')+'>'+g+'</option>'}).join("");
+function syncTurnoNuevaPos(){
+  var isNew=V("i-tp")==="__new__";
+  var box=$("i-new-pos-wrap");
+  if(box) box.style.display=isNew?"flex":"none";
 }
 function mTrn(){
-  var po=S.posiciones.filter(function(p){return p.activa}).map(function(p){return '<option value="'+p.id_posicion+'">'+p.nombre+'</option>'}).join("");
+  var sm={};(S.servicios||[]).forEach(function(s){sm[s.id_servicio]=s.nombre});
+  var po=S.posiciones.filter(function(p){return p.activa}).map(function(p){
+    var srv=sm[p.id_servicio]||("Servicio "+p.id_servicio);
+    return '<option value="'+p.id_posicion+'">'+srv+' · '+p.nombre+'</option>';
+  }).join("")+'<option value="__new__">+ Nueva posición…</option>';
+  var so=S.servicios.filter(function(s){return s.activo}).map(function(s){return '<option value="'+s.id_servicio+'">'+s.nombre+'</option>'}).join("");
   var dc=DF.map(function(d,i){return '<label style="display:flex;gap:2px;align-items:center;font-size:11px"><input type="checkbox" class="dc" value="'+i+'" '+(i<5?"checked":"")+'>'+d.substring(0,2)+'</label>'}).join("");
-  var grupos=_gruposOpts("");
-  oMo('<h3>Nuevo turno</h3><div class="fr"><div class="fg gw"><label>Nombre</label><input id="i-tn" value="Refuerzo"></div><div class="fg"><label>Posición</label><select id="i-tp">'+po+'</select></div></div><div class="fr"><div class="fg"><label>Hora ini</label><input type="time" id="i-thi" value="08:00"></div><div class="fg"><label>Hora fin</label><input type="time" id="i-thf" value="16:00"></div></div><div class="fr"><div class="fg gw"><label>Días</label><div style="display:flex;gap:5px;flex-wrap:wrap">'+dc+'</div></div></div><div class="fr"><div class="fg"><label>Grupo rotación</label><select id="i-tgr">'+grupos+'</select></div><div class="fg" style="padding-top:16px"><label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:12px"><input type="checkbox" id="i-tind"> Indistinto (solver libre)</label></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cancelar</button><button class="btn suc" onclick="doTrn()">Crear</button></div>')}
+  oMo('<h3>Nuevo turno</h3><div class="fr"><div class="fg gw"><label>Nombre</label><input id="i-tn" value="Refuerzo"></div><div class="fg"><label>Posición</label><select id="i-tp" onchange="syncTurnoNuevaPos()">'+po+'</select></div></div><div class="fr" id="i-new-pos-wrap" style="display:none"><div class="fg gw"><label>Nueva posición</label><input id="i-npn" placeholder="Nombre de la posición"></div><div class="fg"><label>Servicio</label><select id="i-nps">'+so+'</select></div></div><div class="fr"><div class="fg"><label>Hora ini</label><input type="time" id="i-thi" value="08:00"></div><div class="fg"><label>Hora fin</label><input type="time" id="i-thf" value="16:00"></div></div><div class="fr"><div class="fg gw"><label>Días</label><div style="display:flex;gap:5px;flex-wrap:wrap">'+dc+'</div></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cancelar</button><button class="btn suc" onclick="doTrn()">Crear</button></div>');
+  syncTurnoNuevaPos();
+}
 function doTrn(){
   var dias=[];document.querySelectorAll(".dc:checked").forEach(function(c){dias.push(parseInt(c.value))});
-  api("/api/turnos",{method:"POST",body:{nombre_turno:V("i-tn"),id_posicion:parseInt(V("i-tp")),hora_inicio:V("i-thi"),hora_fin:V("i-thf"),dias_recurrencia:dias,grupo_rotacion:V("i-tgr")||null,es_indistinto:!!$("i-tind").checked}}).then(function(r){S.turnos=r.turnos;rTrn();cMo();toast("Turno creado","ok")}).catch(function(e){toast(e.message,"er")})}
-function dTrn(id){api("/api/turnos/"+id,{method:"DELETE"}).then(function(r){S.turnos=r.turnos;rTrn()})}
+  var createTurno=function(posId){
+    return api("/api/turnos",{method:"POST",body:{nombre_turno:V("i-tn"),id_posicion:posId,hora_inicio:V("i-thi"),hora_fin:V("i-thf"),dias_recurrencia:dias}});
+  };
+  var posSel=V("i-tp");
+  var flow;
+  if(posSel==="__new__"){
+    var npn=V("i-npn").trim();
+    if(!npn){toast("Nombre de posición requerido","er");return}
+    var newSrvId=parseInt(V("i-nps"),10);
+    if(isNaN(newSrvId)){toast("Selecciona un servicio para la nueva posición","er");return}
+    flow=api("/api/posiciones",{method:"POST",body:{nombre:npn,id_servicio:newSrvId}}).then(function(r){
+      S.posiciones=r.posiciones;
+      var newPosId=S.posiciones.reduce(function(mx,p){
+        var pid=parseInt(p.id_posicion,10);
+        return isNaN(pid)?mx:Math.max(mx,pid);
+      },0);
+      if(!newPosId) throw new Error("No se pudo crear la nueva posición");
+      return createTurno(newPosId);
+    });
+  }else{
+    var posId=parseInt(posSel,10);
+    if(isNaN(posId)){toast("Selecciona una posición válida","er");return}
+    flow=createTurno(posId);
+  }
+  flow.then(function(r){S.turnos=r.turnos;rTrn();rPos();cMo();toast("Turno creado","ok")}).catch(function(e){toast(e.message,"er")});
+}
+function dTrn(id){api("/api/turnos/"+id,{method:"DELETE"}).then(function(r){S.turnos=r.turnos;rTrn();rPos()})}
 function mEditTrn(id){
   var t=S.turnos.find(function(x){return x.id_turno===id});if(!t)return;
+  var pm={};(S.posiciones||[]).forEach(function(p){pm[p.id_posicion]=p});
+  var sm={};(S.servicios||[]).forEach(function(s){sm[s.id_servicio]=s.nombre});
+  var pos=pm[t.id_posicion];
+  var posInfo=pos?((sm[pos.id_servicio]||("Servicio "+pos.id_servicio))+" · "+pos.nombre):("Posición "+t.id_posicion);
   var dc=DF.map(function(d,i){return '<label style="display:flex;gap:2px;align-items:center;font-size:11px"><input type="checkbox" class="de" value="'+i+'"'+((t.dias_recurrencia||[]).indexOf(i)>=0?' checked':'')+'>'+d.substring(0,2)+'</label>'}).join("");
-  var grupos=_gruposOpts(t.grupo_rotacion||"");
-  oMo('<h3>Editar turno</h3><div class="fr"><div class="fg gw"><label>Nombre</label><input id="et-n" value="'+t.nombre_turno+'"></div></div><div class="fr"><div class="fg"><label>Hora ini</label><input type="time" id="et-hi" value="'+(t.hora_inicio||"").substring(0,5)+'"></div><div class="fg"><label>Hora fin</label><input type="time" id="et-hf" value="'+(t.hora_fin||"").substring(0,5)+'"></div></div><div class="fr"><div class="fg gw"><label>Días</label><div style="display:flex;gap:5px;flex-wrap:wrap">'+dc+'</div></div></div><div class="fr"><div class="fg"><label>Grupo rotación</label><select id="et-gr">'+grupos+'</select></div><div class="fg" style="padding-top:16px"><label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:12px"><input type="checkbox" id="et-ind"'+(t.es_indistinto?' checked':'')+'>Indistinto</label></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cancelar</button><button class="btn pri" onclick="doEditTrn('+id+')">Guardar</button></div>');
+  oMo('<h3>Editar turno</h3><p style="font-size:11px;color:var(--dm);margin:0 0 10px">Pertenece a: <b>'+posInfo+'</b></p><div class="fr"><div class="fg gw"><label>Nombre</label><input id="et-n" value="'+t.nombre_turno+'"></div></div><div class="fr"><div class="fg"><label>Hora ini</label><input type="time" id="et-hi" value="'+(t.hora_inicio||"").substring(0,5)+'"></div><div class="fg"><label>Hora fin</label><input type="time" id="et-hf" value="'+(t.hora_fin||"").substring(0,5)+'"></div></div><div class="fr"><div class="fg gw"><label>Días</label><div style="display:flex;gap:5px;flex-wrap:wrap">'+dc+'</div></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cancelar</button><button class="btn pri" onclick="doEditTrn('+id+')">Guardar</button></div>');
 }
 function doEditTrn(id){
   var dias=[];document.querySelectorAll(".de:checked").forEach(function(c){dias.push(parseInt(c.value))});
-  api("/api/turnos/"+id,{method:"PUT",body:{nombre_turno:V("et-n"),hora_inicio:V("et-hi"),hora_fin:V("et-hf"),dias_recurrencia:dias,grupo_rotacion:V("et-gr")||null,es_indistinto:!!$("et-ind").checked}}).then(function(r){S.turnos=r.turnos;rTrn();cMo();toast("Turno actualizado","ok")}).catch(function(e){toast(e.message,"er")});
+  api("/api/turnos/"+id,{method:"PUT",body:{nombre_turno:V("et-n"),hora_inicio:V("et-hi"),hora_fin:V("et-hf"),dias_recurrencia:dias}}).then(function(r){S.turnos=r.turnos;rTrn();rPos();cMo();toast("Turno actualizado","ok")}).catch(function(e){toast(e.message,"er")});
 }
 
 // ═══ EMPLEADOS ════════════════════════════════════════════════════
@@ -229,22 +325,9 @@ function dRes(eid,rid,f){api("/api/restricciones/delete",{method:"POST",body:{id
 
 // ═══ ASIGNACIONES SERVICIO ════════════════════════════════════════
 function rAsig(){
-  var srvs=S.servicios.filter(function(s){return s.activo});
-  var emps=S.empleados.filter(function(e){return e.activo});
-  var set={};(S.asignaciones_servicio||[]).forEach(function(a){set[a.id_empleado+"-"+a.id_servicio]=true});
-  var h='<table class="mx"><thead><tr><th style="text-align:left">Empleado</th>';
-  srvs.forEach(function(s){h+='<th>'+s.nombre+'</th>'});
-  h+='</tr></thead><tbody>';
-  emps.forEach(function(e){
-    h+='<tr><td style="text-align:left;font-weight:600">'+e.nombre+'</td>';
-    srvs.forEach(function(s){
-      var on=set[e.id_empleado+"-"+s.id_servicio];
-      h+='<td class="ck" style="color:'+(on?"var(--gn)":"var(--dm)")+'" onclick="tAsig('+e.id_empleado+','+s.id_servicio+')">'+(on?"●":"○")+'</td>';
-    });h+='</tr>';
-  });h+='</tbody></table>';
-  H("asig-t",h);
+  return _renderAsig();
 }
-function tAsig(eid,sid){api("/api/asignaciones_servicio/toggle",{method:"POST",body:{id_empleado:eid,id_servicio:sid}}).then(function(r){S.asignaciones_servicio=r.asignaciones_servicio;rAsig()}).catch(function(e){toast(e.message,"er")})}
+function tAsig(eid,sid){return _toggleAsig(eid,sid)}
 
 // ═══ CONCILIACIONES ═══════════════════════════════════════════════
 function rConc(){
@@ -289,11 +372,15 @@ function doEditConc(cid){
 // ═══ GENERAR ══════════════════════════════════════════════════════
 function generar(){
   syncMonthInputs();
+  var sid=selectedScheduleServiceId();
+  var body={start_date:V("c-start"),num_days:parseInt(V("c-days"),10),max_time:solverSeconds()};
+  if(sid!==null) body.id_servicio=sid;
   toast("Generando...");
-  api("/api/generar",{method:"POST",body:{start_date:V("c-start"),num_days:parseInt(V("c-days"),10),max_time:solverSeconds()}})
+  api("/api/generar",{method:"POST",body:body})
   .then(function(r){SCH=r;HIST_ID=null;syncInputsFromSchedule(r);renderSch();updateHistBanner();loadHistory();
     var el=document.querySelector('[data-pg="pg-horario"]');if(el)go(el);
-    toast("Horario generado","ok")})
+    if(sid!==null) toast("Horario generado para el servicio seleccionado","ok");
+    else toast("Horario generado","ok")})
   .catch(function(e){toast("Error: "+e.message,"er")});
 }
 
@@ -306,9 +393,10 @@ function navMonth(dir){
   daysEl.value=monthDaysForValue(startEl.value);
   updateNavPeriodo();
   renderSch();
+  if(typeof renderSchEmpleado==="function") renderSchEmpleado();
 }
 function updateNavPeriodo(){
-  var el=$("nav-periodo");if(!el)return;
+  var el=$("nav-periodo"),elEmp=$("emp-nav-periodo");if(!el&&!elEmp)return;
   var MNL=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   var startEl=$("c-start"),daysEl=$("c-days");
   if(startEl&&startEl.value){
@@ -318,27 +406,64 @@ function updateNavPeriodo(){
     var s=MNL[fi.getMonth()]+" "+fi.getFullYear();
     if(fi.getMonth()!==ffD.getMonth()||fi.getFullYear()!==ffD.getFullYear())
       s+=" – "+MNL[ffD.getMonth()]+" "+ffD.getFullYear();
-    el.textContent=s;
-  }else{el.textContent="Sin configurar";}
+    if(el) el.textContent=s;
+    if(elEmp) elEmp.textContent=s;
+  }else{
+    if(el) el.textContent="Sin configurar";
+    if(elEmp) elEmp.textContent="Sin configurar";
+  }
 }
 
 // ═══ RENDER SCHEDULE ══════════════════════════════════════════════
+function refreshScheduleServiceFilter(){
+  var sel=$("sch-srv-filter");
+  if(!sel||!S)return;
+  var current=sel.value||"";
+  var map={};
+  (S.servicios||[]).forEach(function(s){map[String(s.id_servicio)]=s.nombre;});
+  if(SCH&&SCH.grids){
+    Object.keys(SCH.grids).forEach(function(sk){
+      if(!map[sk]) map[sk]=(SCH.grids[sk]&&SCH.grids[sk].nombre)||("Servicio "+sk);
+    });
+  }
+  var keys=Object.keys(map).sort(function(a,b){return parseInt(a,10)-parseInt(b,10)});
+  sel.innerHTML='<option value="">Todos los servicios</option>'+keys.map(function(k){return '<option value="'+k+'">'+map[k]+'</option>'}).join("");
+  if(current&&map[current]) sel.value=current;
+}
+function selectedScheduleServiceId(){
+  var sel=$("sch-srv-filter");
+  if(!sel||!sel.value) return null;
+  var sid=parseInt(sel.value,10);
+  return isNaN(sid)?null:sid;
+}
+function onScheduleServiceFilterChange(){renderSch();}
+
 function renderSch(){
   var a=$("sch-area"),sb=$("sts"),hc=$("hrs-card");
+  refreshScheduleServiceFilter();
   if(!SCH||!SCH.grids){a.innerHTML='<div class="card"><div class="card-b" style="text-align:center;padding:50px;color:var(--dm)"><div style="font-size:40px;opacity:.3;margin-bottom:10px">📋</div><p>Sin horario generado para este mes</p></div></div>';sb.style.display="none";hc.style.display="none";return}
   if(!scheduleMatchesSelection(SCH)){
     var fi=(SCH.dates&&SCH.dates.length)?SCH.dates[0]:"";
     a.innerHTML='<div class="card"><div class="card-b" style="text-align:center;padding:40px;color:var(--dm)"><div style="font-size:40px;opacity:.3;margin-bottom:10px">📅</div><p style="margin-bottom:10px">No hay horario generado para el mes seleccionado.</p><p style="font-size:11px;margin-bottom:16px">Último horario disponible desde <b>'+fi+'</b>.</p><button class="btn pri" onclick="showLatestScheduleMonth()">Ver último horario</button></div></div>';
     sb.style.display="none";hc.style.display="none";return
   }
-  var grids=SCH.grids,dates=SCH.dates,hours=SCH.hours;
+  var grids=SCH.grids,dates=SCH.dates,hours=SCH.hours||[];
+  var selectedSid=selectedScheduleServiceId();
+  var visibleServiceKeys=Object.keys(grids).filter(function(sk){return selectedSid===null||parseInt(sk,10)===selectedSid;});
+  if(!visibleServiceKeys.length){
+    a.innerHTML='<div class="card"><div class="card-b" style="text-align:center;padding:40px;color:var(--dm)"><div style="font-size:34px;opacity:.35;margin-bottom:8px">🔎</div><p>No hay datos para el servicio seleccionado en este mes.</p></div></div>';
+    sb.style.display="none";hc.style.display="none";return;
+  }
   sb.style.display="flex";
   var te=0,tc=0,to=0;
-  Object.values(grids).forEach(function(g){Object.values(g.employees).forEach(function(ed){te++;Object.values(ed.days).forEach(function(c){if(c.es_off)to++;else tc++})})});
+  visibleServiceKeys.forEach(function(sk){
+    var g=grids[sk];
+    Object.values(g.employees).forEach(function(ed){te++;Object.values(ed.days).forEach(function(c){if(c.es_off)to++;else tc++})});
+  });
   H("s-emp",te);H("s-cub",tc);H("s-flt",SCH.summary?SCH.summary.faltantes||0:0);H("s-dias",dates.length);
 
   var html="";
-  Object.keys(grids).forEach(function(sk){
+  visibleServiceKeys.forEach(function(sk){
     var sd=grids[sk];
     html+='<div class="card" style="margin-bottom:16px"><div class="srv-hdr">🏢 '+sd.nombre+'</div><div class="sw"><table class="sc"><thead><tr><th class="eh">Empleado</th><th class="ph">Posición</th>';
     dates.forEach(function(ds){var d=new Date(ds+"T00:00:00");var dow=d.getDay();var we=dow===0||dow===6;
@@ -369,9 +494,15 @@ function renderSch(){
   });
   a.innerHTML=html;
 
+  var visibleEmployees={};
+  visibleServiceKeys.forEach(function(sk){
+    Object.keys((grids[sk]&&grids[sk].employees)||{}).forEach(function(ek){visibleEmployees[ek]=true;});
+  });
+  var filteredHours=hours.filter(function(h){return visibleEmployees[String(h.id)]});
+  if(!filteredHours.length){hc.style.display="none";H("hrs-area","");return}
   hc.style.display="block";
   var hh='<table class="ht"><thead><tr><th>Empleado</th><th>H.Trabajo</th><th>H.Restr.</th><th>Total</th><th>Objetivo</th><th>Diff</th><th style="width:25%">Balance</th></tr></thead><tbody>';
-  hours.forEach(function(h){
+  filteredHours.forEach(function(h){
     var pct=Math.min((h.horas_total/h.objetivo)*100,150);
     var cls=h.diff>5?"ov":h.diff<-10?"un":"ok";
     var ds=h.diff>=0?"+"+h.diff:""+h.diff;
@@ -493,11 +624,108 @@ document.addEventListener("DOMContentLoaded",function(){
   updateNavPeriodo();
   api("/api/state").then(function(d){
     S=d;
+    refreshScheduleServiceFilter();
     api("/api/schedule").then(function(s){if(s&&s.grids){SCH=s;syncInputsFromSchedule(s);renderSch()}}).catch(function(){});
     loadHistory();
   });
   var startEl=$("c-start"),daysEl=$("c-days");
-  if(startEl)startEl.addEventListener("change",function(){syncMonthInputs();updateNavPeriodo();renderSch();});
-  if(daysEl)daysEl.addEventListener("change",function(){syncMonthInputs();updateNavPeriodo();renderSch();});
+  if(startEl)startEl.addEventListener("change",function(){syncMonthInputs();updateNavPeriodo();renderSch();if(typeof renderSchEmpleado==="function")renderSchEmpleado();});
+  if(daysEl)daysEl.addEventListener("change",function(){syncMonthInputs();updateNavPeriodo();renderSch();if(typeof renderSchEmpleado==="function")renderSchEmpleado();});
   document.addEventListener("keydown",function(e){if(e.key==="Escape"){cMo();cEm()}});
 });
+
+function _posDayTotals(pid){
+  var totals=[0,0,0,0,0,0,0];
+  (S.turnos||[]).forEach(function(t){
+    if(parseInt(t.id_posicion,10)!==parseInt(pid,10)) return;
+    var h=parseFloat(t.duracion_horas)||0;
+    (t.dias_recurrencia||[]).forEach(function(d){
+      var wd=parseInt(d,10);
+      if(wd>=0&&wd<7) totals[wd]+=h;
+    });
+  });
+  return totals;
+}
+
+function mPos(){
+  var opts=S.servicios.filter(function(s){return s.activo}).map(function(s){return '<option value="'+s.id_servicio+'">'+s.nombre+'</option>'}).join("");
+  oMo('<h3>Nueva posición</h3><p style="font-size:11px;color:var(--dm);margin:0 0 10px">Después podrás crear sus turnos desde esta misma pantalla.</p><div class="fr"><div class="fg gw"><label>Nombre</label><input id="i-pn"></div><div class="fg"><label>Servicio</label><select id="i-ps">'+opts+'</select></div></div><div class="fr"><div class="fg gw"><label style="text-transform:none;letter-spacing:0"><input type="checkbox" id="i-p24" style="margin-right:6px"> Posición 24H (sumatorio de turnos = 24h por día)</label></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cancelar</button><button class="btn suc" onclick="doPos()">Crear</button></div>');
+}
+
+function doPos(){
+  api("/api/posiciones",{method:"POST",body:{nombre:V("i-pn"),id_servicio:parseInt(V("i-ps"),10),es_24h:!!($("i-p24")&&$("i-p24").checked)}}).then(function(r){
+    S.posiciones=r.posiciones;
+    rPos();
+    cMo();
+    var newPosId=S.posiciones.reduce(function(mx,p){
+      var pid=parseInt(p.id_posicion,10);
+      return isNaN(pid)?mx:Math.max(mx,pid);
+    },0);
+    if(newPosId){mPosTurns(newPosId);}
+    toast("Posición creada","ok");
+  }).catch(function(e){toast(e.message,"er")});
+}
+
+function mEditPos(id){
+  var p=S.posiciones.find(function(x){return x.id_posicion===id});if(!p)return;
+  var totals=_posDayTotals(id);
+  var info=totals.map(function(h,i){return DF[i].substring(0,2)+": "+(Math.round(h*10)/10)+"h"}).join(" · ");
+  oMo('<h3>Editar posición</h3><div class="fr"><div class="fg gw"><label>Nombre</label><input id="ep-n" value="'+p.nombre+'"></div></div><div class="fr"><div class="fg gw"><label style="text-transform:none;letter-spacing:0"><input type="checkbox" id="ep-24"'+(p.es_24h?' checked':'')+' style="margin-right:6px"> Posición 24H (sumatorio de turnos = 24h por día)</label><p style="font-size:10px;color:var(--dm);margin-top:6px">Totales actuales por día: '+info+'</p></div></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn" onclick="cMo()">Cancelar</button><button class="btn pri" onclick="doEditPos('+id+')">Guardar</button></div>');
+}
+
+function doEditPos(id){
+  api("/api/posiciones/"+id,{method:"PUT",body:{nombre:V("ep-n"),es_24h:!!($("ep-24")&&$("ep-24").checked)}}).then(function(r){
+    S.posiciones=r.posiciones;
+    rPos();
+    cMo();
+    toast("Posición actualizada","ok");
+  }).catch(function(e){toast(e.message,"er")});
+}
+
+// Refactor módulo de asignaciones: carga fresca + eventos declarativos
+function _loadAsigData(){
+  return api("/api/asignaciones_servicio").then(function(rows){
+    S.asignaciones_servicio = rows || [];
+    return S.asignaciones_servicio;
+  });
+}
+
+function _renderAsig(){
+  var box=$("asig-t");if(!box)return;
+  var srvs=S.servicios.filter(function(s){return s.activo});
+  var emps=S.empleados.filter(function(e){return e.activo});
+  var selected={};
+  (S.asignaciones_servicio||[]).forEach(function(a){
+    selected[a.id_empleado+"-"+a.id_servicio]=true;
+  });
+  var h='<table class="mx"><thead><tr><th style="text-align:left">Empleado</th>';
+  srvs.forEach(function(s){h+='<th>'+s.nombre+'</th>'});
+  h+='</tr></thead><tbody>';
+  emps.forEach(function(e){
+    h+='<tr><td style="text-align:left;font-weight:600">'+e.nombre+'</td>';
+    srvs.forEach(function(s){
+      var on=!!selected[e.id_empleado+"-"+s.id_servicio];
+      h+='<td><button type="button" class="ck asig-btn" data-eid="'+e.id_empleado+'" data-sid="'+s.id_servicio+'" style="background:transparent;border:none;cursor:pointer;font-size:16px;color:'+(on?"var(--gn)":"var(--dm)")+'">'+(on?"●":"○")+'</button></td>';
+    });
+    h+='</tr>';
+  });
+  h+='</tbody></table>';
+  box.innerHTML=h;
+  box.querySelectorAll(".asig-btn").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      var eid=parseInt(this.getAttribute("data-eid"),10);
+      var sid=parseInt(this.getAttribute("data-sid"),10);
+      if(isNaN(eid)||isNaN(sid)) return;
+      _toggleAsig(eid,sid);
+    });
+  });
+}
+
+function _toggleAsig(eid,sid){
+  api("/api/asignaciones_servicio/toggle",{method:"POST",body:{id_empleado:eid,id_servicio:sid}})
+    .then(function(r){
+      S.asignaciones_servicio=r.asignaciones_servicio||[];
+      _renderAsig();
+    })
+    .catch(function(e){toast(e.message,"er")});
+}

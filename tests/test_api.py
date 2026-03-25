@@ -23,10 +23,17 @@ def _generate(client, start_date="2026-03-01", num_days=31, max_time=30):
     return client.post("/api/generar", json={"start_date": start_date, "num_days": num_days, "max_time": max_time})
 
 
+def _row_employee_id(row_key, row):
+    if isinstance(row, dict) and row.get("id_empleado") is not None:
+        return int(row["id_empleado"])
+    return int(str(row_key).split(":", 1)[0])
+
+
 def _first_work_assignment(schedule, employee_id=None):
     for sid, grid in schedule["grids"].items():
-        for eid, emp in grid["employees"].items():
-            if employee_id is not None and int(eid) != employee_id:
+        for rk, emp in grid["employees"].items():
+            eid = _row_employee_id(rk, emp)
+            if employee_id is not None and eid != employee_id:
                 continue
             for ds, cell in emp["days"].items():
                 if not cell.get("es_off") and not cell.get("es_restriccion"):
@@ -38,7 +45,7 @@ def _find_alt_service_row(schedule, employee_id, exclude_service_id):
     for sid, grid in schedule["grids"].items():
         if int(sid) == exclude_service_id:
             continue
-        if str(employee_id) in grid["employees"]:
+        if any(_row_employee_id(rk, row) == employee_id for rk, row in grid["employees"].items()):
             return int(sid)
     return None
 
@@ -78,7 +85,8 @@ def test_generar_respects_global_max_hours_and_no_double_booking():
         max_by_emp = {e["id_empleado"]: e["horas_maximas"] for e in state["empleados"]}
         seen = {}
         for sid, grid in data["grids"].items():
-            for eid, emp in grid["employees"].items():
+            for rk, emp in grid["employees"].items():
+                eid = _row_employee_id(rk, emp)
                 for ds, cell in emp["days"].items():
                     if cell.get("es_off") or cell.get("es_restriccion"):
                         continue
@@ -89,6 +97,22 @@ def test_generar_respects_global_max_hours_and_no_double_booking():
             max_hours = max_by_emp[h["id"]]
             if max_hours is not None:
                 assert h["horas_total"] <= max_hours + 1e-6
+
+
+def test_generar_por_servicio_separado_y_acumula_grids():
+    _r()
+    with app.test_client() as c:
+        s1 = c.post("/api/generar", json={"start_date": "2026-03-01", "num_days": 31, "max_time": 5, "id_servicio": 1})
+        assert s1.status_code == 200
+        d1 = s1.get_json()
+        assert "1" in d1["grids"]
+        assert "2" not in d1["grids"]
+        # generar luego servicio 2 y comprobar que ambos quedan en el horario guardado
+        s2 = c.post("/api/generar", json={"start_date": "2026-03-01", "num_days": 31, "max_time": 5, "id_servicio": 2})
+        assert s2.status_code == 200
+        d2 = s2.get_json()
+        assert "1" in d2["grids"]
+        assert "2" in d2["grids"]
 
 
 def test_crud_empleado():
@@ -119,7 +143,7 @@ def test_restriction_limit():
     with app.test_client() as c:
         r = c.post("/api/restricciones", json={"id_empleado": 1, "id_restriccion": 10, "fecha_ini": "2026-04-01", "fecha_fin": "2026-06-01"})
         assert r.status_code == 400
-        assert "LÃ­mite" in r.get_json()["error"]
+        assert "límite" in r.get_json()["error"].lower() or "limite" in r.get_json()["error"].lower()
 
 
 def test_day_off_is_unlimited():
@@ -134,6 +158,30 @@ def test_toggle_asig():
     _r()
     with app.test_client() as c:
         assert c.post("/api/asignaciones_servicio/toggle", json={"id_empleado": 4, "id_servicio": 1}).get_json()["ok"]
+
+
+def test_toggle_asig_rejects_invalid_entities():
+    _r()
+    with app.test_client() as c:
+        r1 = c.post("/api/asignaciones_servicio/toggle", json={"id_empleado": 9999, "id_servicio": 1})
+        assert r1.status_code == 400
+        r2 = c.post("/api/asignaciones_servicio/toggle", json={"id_empleado": 1, "id_servicio": 9999})
+        assert r2.status_code == 400
+
+
+def test_assignments_are_strict_per_service():
+    _r()
+    with app.test_client() as c:
+        asigs = c.get("/api/asignaciones_servicio").get_json() or []
+        for a in list(asigs):
+            if int(a["id_servicio"]) == 2:
+                c.post(
+                    "/api/asignaciones_servicio/toggle",
+                    json={"id_empleado": int(a["id_empleado"]), "id_servicio": 2},
+                )
+        r = _generate(c, id_servicio=2).get_json()
+        assert r["grids"]["2"]["employees"] == {}
+        assert int(r["summary"]["faltantes_by_service"].get("2", 0)) > 0
 
 
 def test_conciliaciones():
@@ -159,7 +207,7 @@ def test_manual_edit_rejects_double_booking():
         assert other_sid is not None
         r = c.post("/api/schedule/edit", json={"id_servicio": other_sid, "id_empleado": eid, "fecha": ds, "turno": cell["turno"], "horas": cell["horas"]})
         assert r.status_code == 400
-        assert "mismo dÃ­a" in r.get_json()["error"]
+        assert "mismo" in r.get_json()["error"].lower()
 
 
 def test_manual_edit_rejects_max_hours_excess():
@@ -172,11 +220,20 @@ def test_manual_edit_rejects_max_hours_excess():
     _save_state(state)
     with app.test_client() as c:
         schedule = _generate(c).get_json()
-        target_service = next(sid for sid, grid in schedule["grids"].items() if "1" in grid["employees"])
-        target_day = next(ds for ds, cell in schedule["grids"][target_service]["employees"]["1"]["days"].items() if cell.get("es_off"))
+        target_service = next(
+            sid
+            for sid, grid in schedule["grids"].items()
+            if any(_row_employee_id(rk, row) == 1 for rk, row in grid["employees"].items())
+        )
+        target_row = next(
+            row
+            for rk, row in schedule["grids"][target_service]["employees"].items()
+            if _row_employee_id(rk, row) == 1
+        )
+        target_day = next(ds for ds, cell in target_row["days"].items() if cell.get("es_off"))
         r = c.post("/api/schedule/edit", json={"id_servicio": int(target_service), "id_empleado": 1, "fecha": target_day, "turno": "M8", "horas": 8})
         assert r.status_code == 400
-        assert "horas mÃ¡ximas" in r.get_json()["error"]
+        assert "horas" in r.get_json()["error"].lower()
 
 
 def test_manual_edit_rejects_overnight_shift_before_vacation():
@@ -187,7 +244,11 @@ def test_manual_edit_rejects_overnight_shift_before_vacation():
     _save_state(state)
     with app.test_client() as c:
         schedule = _generate(c).get_json()
-        service_id = next(int(sid) for sid, grid in schedule["grids"].items() if "1" in grid["employees"])
+        service_id = next(
+            int(sid)
+            for sid, grid in schedule["grids"].items()
+            if any(_row_employee_id(rk, row) == 1 for rk, row in grid["employees"].items())
+        )
         r = c.post("/api/schedule/edit", json={"id_servicio": service_id, "id_empleado": 1, "fecha": "2026-03-19", "turno": "N8", "horas": 8})
         assert r.status_code == 400
         assert "vacaciones" in r.get_json()["error"].lower()

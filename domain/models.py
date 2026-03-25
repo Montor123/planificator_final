@@ -10,7 +10,9 @@ class Servicio:
 
 @dataclass
 class Posicion:
-    id_posicion: int; id_servicio: int; nombre: str; activa: bool = True
+    id_posicion: int; id_servicio: int; nombre: str; activa: bool = True; es_24h: bool = False; modo_24h: str = "8h"
+    temporalidad: Temporalidad = Temporalidad.CONTINUO
+    fecha_inicio: Optional[date] = None; fecha_fin: Optional[date] = None
 
 @dataclass
 class Turno:

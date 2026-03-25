@@ -236,8 +236,6 @@ class Scheduler:
                 continue
             for di in range(n_days):
                 for sh in shifts:
-                    if getattr(sh, 'es_indistinto', False):
-                        continue  # turnos indistintos: sin penalización de preferencia
                     k = (e.id_empleado, di, sh.id_turno)
                     if k not in x:
                         continue
